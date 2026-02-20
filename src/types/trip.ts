@@ -99,6 +99,8 @@ export interface Place {
   scheduledDayIds: string[];
   tip?: string;
   notes?: string;
+  isEvent?: boolean;
+  startTime?: string;
   createdAt: string;
 }
 

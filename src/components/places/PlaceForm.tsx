@@ -80,6 +80,8 @@ export default function PlaceForm({ onSubmit, onCancel, initialData }: PlaceForm
     imageUrl: initialData?.imageUrl ?? '',
     tip: initialData?.tip ?? '',
     notes: initialData?.notes ?? '',
+    isEvent: initialData?.isEvent ?? false,
+    startTime: initialData?.startTime ?? '',
   });
 
   const handleChange = (field: string, value: string) => {
@@ -142,6 +144,8 @@ export default function PlaceForm({ onSubmit, onCancel, initialData }: PlaceForm
       notes: formData.notes || undefined,
       description: formData.description || undefined,
       address: formData.address || undefined,
+      isEvent: formData.isEvent || undefined,
+      startTime: formData.isEvent && formData.startTime ? formData.startTime : undefined,
     };
 
     const result = placeSchema.safeParse(parsed);
@@ -204,12 +208,22 @@ export default function PlaceForm({ onSubmit, onCancel, initialData }: PlaceForm
         </div>
       )}
       {formData.imageUrl && (
-        <div className="h-40 rounded-lg overflow-hidden border border-gray-200 -mt-2">
+        <div className="relative h-40 rounded-lg overflow-hidden border border-gray-200 -mt-2">
           <PlaceImage
             src={formData.imageUrl}
             alt={formData.name || 'Place'}
             className="w-full h-full object-cover"
           />
+          <button
+            type="button"
+            onClick={() => handleChange('imageUrl', '')}
+            className="absolute top-2 right-2 p-1 rounded-full bg-black/50 text-white hover:bg-black/70 transition-colors"
+            title="Remove image"
+          >
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
         </div>
       )}
       <div className="space-y-2">
@@ -266,6 +280,30 @@ export default function PlaceForm({ onSubmit, onCancel, initialData }: PlaceForm
         value={formData.tip}
         onChange={(e) => handleChange('tip', e.target.value)}
       />
+      <div className="space-y-3">
+        <label className="flex items-center gap-2 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={formData.isEvent}
+            onChange={(e) => {
+              setFormData((prev) => ({ ...prev, isEvent: e.target.checked }));
+              setErrors((prev) => ({ ...prev, startTime: '' }));
+            }}
+            className="rounded border-gray-300 text-violet-600 focus:ring-violet-500"
+          />
+          <span className="text-sm font-medium text-gray-700">This is an event I&apos;m attending</span>
+        </label>
+        {formData.isEvent && (
+          <Input
+            id="startTime"
+            label="Start Time"
+            type="time"
+            value={formData.startTime}
+            onChange={(e) => handleChange('startTime', e.target.value)}
+            error={errors.startTime}
+          />
+        )}
+      </div>
       <Input
         id="website"
         label="Website (optional)"

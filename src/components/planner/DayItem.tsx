@@ -42,6 +42,9 @@ export default function DayItem({ place, index, currency, draggableIdPrefix, isL
             )}
             <div className="flex-1 min-w-0">
               <div className="flex items-baseline gap-1.5">
+                {place.isEvent && place.startTime && (
+                  <span className="text-xs font-semibold text-violet-600 flex-shrink-0">{place.startTime}</span>
+                )}
                 <p className="text-sm font-medium text-gray-900 line-clamp-2">{place.name}</p>
                 {place.estimatedDuration != null && place.estimatedDuration > 0 && (
                   <span className="text-[10px] text-gray-400 flex-shrink-0">{place.estimatedDuration >= 60 ? `${Math.floor(place.estimatedDuration / 60)}h${place.estimatedDuration % 60 ? place.estimatedDuration % 60 : ''}` : `${place.estimatedDuration}m`}</span>

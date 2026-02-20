@@ -72,6 +72,11 @@ export const placeSchema = z.object({
   imageUrl: z.string().url().optional().or(z.literal('')),
   tip: z.string().max(300).optional(),
   notes: z.string().max(500).optional(),
+  isEvent: z.boolean().optional(),
+  startTime: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, 'Must be HH:mm format').optional(),
+}).refine((data) => !data.isEvent || !!data.startTime, {
+  message: 'Start time is required for events',
+  path: ['startTime'],
 });
 
 export const transportSchema = z.object({

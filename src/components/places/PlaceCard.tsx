@@ -89,6 +89,15 @@ export default function PlaceCard({ place, currency, onEdit, onDelete, isHighlig
                 </div>
               )}
 
+              {place.isEvent && (
+                <div className="flex items-center gap-1.5 mt-1">
+                  <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-violet-100 text-violet-700">Event</span>
+                  {place.startTime && (
+                    <span className="text-xs text-violet-600 font-medium">{place.startTime}</span>
+                  )}
+                </div>
+              )}
+
               {place.description && (
                 <p className="text-xs text-gray-500 mt-1 line-clamp-2">{place.description}</p>
               )}
