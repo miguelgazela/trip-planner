@@ -2,10 +2,15 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
+import { useAuth } from '@/providers/AuthProvider';
 
 export default function AppHeader() {
   const pathname = usePathname();
   const isHome = pathname === '/';
+  const { user, signOut } = useAuth();
+
+  const isAuthPage = pathname.startsWith('/login') || pathname.startsWith('/signup');
+  if (isAuthPage) return null;
 
   return (
     <header className="bg-white border-b border-gray-200 sticky top-0 z-50 print:hidden">
@@ -20,17 +25,31 @@ export default function AppHeader() {
             <span className="text-xl font-bold text-gray-900">TripPlanner</span>
           </Link>
 
-          {!isHome && (
-            <Link
-              href="/"
-              className="text-sm text-gray-500 hover:text-gray-700 transition-colors flex items-center gap-1"
-            >
-              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-              </svg>
-              All Trips
-            </Link>
-          )}
+          <div className="flex items-center gap-4">
+            {!isHome && (
+              <Link
+                href="/"
+                className="text-sm text-gray-500 hover:text-gray-700 transition-colors flex items-center gap-1"
+              >
+                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+                </svg>
+                All Trips
+              </Link>
+            )}
+
+            {user && (
+              <div className="flex items-center gap-3">
+                <span className="text-sm text-gray-500 hidden sm:inline">{user.email}</span>
+                <button
+                  onClick={signOut}
+                  className="text-sm text-gray-500 hover:text-gray-700 transition-colors"
+                >
+                  Sign Out
+                </button>
+              </div>
+            )}
+          </div>
         </div>
       </div>
     </header>

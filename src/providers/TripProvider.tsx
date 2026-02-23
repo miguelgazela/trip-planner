@@ -1,14 +1,27 @@
 'use client';
 
-import React, { createContext, useContext, useCallback, useMemo, useEffect } from 'react';
-import { useLocalStorage } from '@/hooks/useLocalStorage';
+import React, { createContext, useContext, useCallback, useMemo, useEffect, useState, useRef } from 'react';
+import { useAuth } from '@/providers/AuthProvider';
+import { getSupabaseBrowserClient } from '@/lib/supabase/client';
 import { generateId } from '@/lib/id';
 import { getTripDays } from '@/lib/date-utils';
 import { Trip, Flight, Accommodation, Place, Expense, Transport } from '@/types/trip';
 import { DayPlan, DayPlanItem, TimeOfDay } from '@/types/planner';
 import { PackingItem } from '@/types/packing';
+import {
+  tripToRow, rowToTrip,
+  flightToRow, rowToFlight,
+  accommodationToRow, rowToAccommodation,
+  placeToRow, rowToPlace,
+  expenseToRow, rowToExpense,
+  transportToRow, rowToTransport,
+  packingItemToRow, rowToPackingItem,
+  dayPlanToRow, rowToDayPlan,
+  partialToSnake,
+} from '@/lib/supabase/mappers';
 
 interface TripContextValue {
+  loading: boolean;
   trips: Trip[];
   createTrip: (data: Omit<Trip, 'id' | 'createdAt' | 'updatedAt'>) => Trip;
   updateTrip: (id: string, data: Partial<Trip>) => void;
@@ -72,60 +85,105 @@ export function useTripContext() {
   return context;
 }
 
+// ---------------------------------------------------------------------------
+// Helper: fire-and-forget Supabase mutation with error logging
+// ---------------------------------------------------------------------------
+function bg(promise: Promise<{ error: { message: string } | null }>) {
+  promise.then(({ error }) => {
+    if (error) console.error('[Supabase]', error.message);
+  });
+}
+
 export function TripProvider({ children }: { children: React.ReactNode }) {
-  const [trips, setTrips] = useLocalStorage<Trip[]>('trip-planner:trips', []);
-  const [flights, setFlights] = useLocalStorage<Flight[]>('trip-planner:flights', []);
-  const [accommodations, setAccommodations] = useLocalStorage<Accommodation[]>('trip-planner:accommodations', []);
-  const [places, setPlaces] = useLocalStorage<Place[]>('trip-planner:places', []);
-  const [expenses, setExpenses] = useLocalStorage<Expense[]>('trip-planner:expenses', []);
-  const [transports, setTransports] = useLocalStorage<Transport[]>('trip-planner:transports', []);
-  const [packingItems, setPackingItems] = useLocalStorage<PackingItem[]>('trip-planner:packing', []);
-  const [dayPlans, setDayPlans] = useLocalStorage<DayPlan[]>('trip-planner:dayplans', []);
+  const { user, loading: authLoading } = useAuth();
+  const userId = user?.id ?? '';
 
-  // Migrate: rename 'food' category → 'restaurant'
-  useEffect(() => {
-    const needsMigration = places.some((p) =>
-      (p.categories as string[]).includes('food')
-    );
-    if (needsMigration) {
-      setPlaces((prev) =>
-        prev.map((p) => ({
-          ...p,
-          categories: (p.categories as string[]).map((c) =>
-            c === 'food' ? 'restaurant' : c
-          ) as Place['categories'],
-        }))
-      );
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  const [loading, setLoading] = useState(true);
+  const [trips, setTrips] = useState<Trip[]>([]);
+  const [flights, setFlights] = useState<Flight[]>([]);
+  const [accommodations, setAccommodations] = useState<Accommodation[]>([]);
+  const [places, setPlaces] = useState<Place[]>([]);
+  const [expenses, setExpenses] = useState<Expense[]>([]);
+  const [transports, setTransports] = useState<Transport[]>([]);
+  const [packingItems, setPackingItems] = useState<PackingItem[]>([]);
+  const [dayPlans, setDayPlans] = useState<DayPlan[]>([]);
 
-  // Migrate: scheduledDayId (string) → scheduledDayIds (array)
+  // --- Initial fetch from Supabase ---
   useEffect(() => {
-    const needsMigration = places.some((p) => !Array.isArray(p.scheduledDayIds));
-    if (needsMigration) {
-      setPlaces((prev) =>
-        prev.map((p) => {
-          if (Array.isArray(p.scheduledDayIds)) return p;
-          const oldId = (p as unknown as { scheduledDayId?: string }).scheduledDayId;
-          return { ...p, scheduledDayIds: oldId ? [oldId] : [] };
-        })
-      );
+    if (authLoading) return;
+    if (!user) {
+      setTrips([]);
+      setFlights([]);
+      setAccommodations([]);
+      setPlaces([]);
+      setExpenses([]);
+      setTransports([]);
+      setPackingItems([]);
+      setDayPlans([]);
+      setLoading(false);
+      return;
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+
+    const supabase = getSupabaseBrowserClient();
+    let cancelled = false;
+
+    async function fetchAll() {
+      const [
+        { data: tripsData },
+        { data: flightsData },
+        { data: accData },
+        { data: placesData },
+        { data: expensesData },
+        { data: transportsData },
+        { data: packingData },
+        { data: dayPlansData },
+      ] = await Promise.all([
+        supabase.from('trips').select('*'),
+        supabase.from('flights').select('*'),
+        supabase.from('accommodations').select('*'),
+        supabase.from('places').select('*'),
+        supabase.from('expenses').select('*'),
+        supabase.from('transports').select('*'),
+        supabase.from('packing_items').select('*'),
+        supabase.from('day_plans').select('*'),
+      ]);
+
+      if (cancelled) return;
+
+      setTrips((tripsData ?? []).map(rowToTrip));
+      setFlights((flightsData ?? []).map(rowToFlight));
+      setAccommodations((accData ?? []).map(rowToAccommodation));
+      setPlaces((placesData ?? []).map(rowToPlace));
+      setExpenses((expensesData ?? []).map(rowToExpense));
+      setTransports((transportsData ?? []).map(rowToTransport));
+      setPackingItems((packingData ?? []).map(rowToPackingItem));
+      setDayPlans((dayPlansData ?? []).map(rowToDayPlan));
+      setLoading(false);
+    }
+
+    fetchAll();
+    return () => { cancelled = true; };
+  }, [user, authLoading]);
+
+  const supabaseRef = useRef<ReturnType<typeof getSupabaseBrowserClient> | null>(null);
+  function getClient() {
+    if (!supabaseRef.current) supabaseRef.current = getSupabaseBrowserClient();
+    return supabaseRef.current;
+  }
 
   // --- Trips ---
   const createTrip = useCallback((data: Omit<Trip, 'id' | 'createdAt' | 'updatedAt'>): Trip => {
     const now = new Date().toISOString();
     const trip: Trip = { ...data, id: generateId(), createdAt: now, updatedAt: now };
     setTrips((prev) => [...prev, trip]);
+    bg(getClient().from('trips').insert(tripToRow(trip, userId)));
     return trip;
-  }, [setTrips]);
+  }, [userId]);
 
   const updateTrip = useCallback((id: string, data: Partial<Trip>) => {
     setTrips((prev) => prev.map((t) => t.id === id ? { ...t, ...data, updatedAt: new Date().toISOString() } : t));
-  }, [setTrips]);
+    bg(getClient().from('trips').update({ ...partialToSnake(data), updated_at: new Date().toISOString() }).eq('id', id));
+  }, []);
 
   const deleteTrip = useCallback((tripId: string) => {
     setTrips((prev) => prev.filter((t) => t.id !== tripId));
@@ -136,7 +194,9 @@ export function TripProvider({ children }: { children: React.ReactNode }) {
     setTransports((prev) => prev.filter((t) => t.tripId !== tripId));
     setPackingItems((prev) => prev.filter((p) => p.tripId !== tripId));
     setDayPlans((prev) => prev.filter((d) => d.tripId !== tripId));
-  }, [setTrips, setFlights, setAccommodations, setPlaces, setExpenses, setTransports, setPackingItems, setDayPlans]);
+    // CASCADE handles children in DB — just delete the trip
+    bg(getClient().from('trips').delete().eq('id', tripId));
+  }, []);
 
   const getTrip = useCallback((tripId: string) => trips.find((t) => t.id === tripId), [trips]);
 
@@ -144,15 +204,18 @@ export function TripProvider({ children }: { children: React.ReactNode }) {
   const addFlight = useCallback((tripId: string, data: Omit<Flight, 'id' | 'tripId' | 'createdAt'>) => {
     const flight: Flight = { ...data, id: generateId(), tripId, createdAt: new Date().toISOString() };
     setFlights((prev) => [...prev, flight]);
-  }, [setFlights]);
+    bg(getClient().from('flights').insert(flightToRow(flight, userId)));
+  }, [userId]);
 
   const updateFlight = useCallback((id: string, data: Partial<Flight>) => {
     setFlights((prev) => prev.map((f) => f.id === id ? { ...f, ...data } : f));
-  }, [setFlights]);
+    bg(getClient().from('flights').update(partialToSnake(data)).eq('id', id));
+  }, []);
 
   const deleteFlight = useCallback((id: string) => {
     setFlights((prev) => prev.filter((f) => f.id !== id));
-  }, [setFlights]);
+    bg(getClient().from('flights').delete().eq('id', id));
+  }, []);
 
   const getFlightsForTrip = useCallback((tripId: string) => {
     return flights.filter((f) => f.tripId === tripId).sort((a, b) =>
@@ -164,15 +227,18 @@ export function TripProvider({ children }: { children: React.ReactNode }) {
   const addAccommodation = useCallback((tripId: string, data: Omit<Accommodation, 'id' | 'tripId' | 'createdAt'>) => {
     const acc: Accommodation = { ...data, id: generateId(), tripId, createdAt: new Date().toISOString() };
     setAccommodations((prev) => [...prev, acc]);
-  }, [setAccommodations]);
+    bg(getClient().from('accommodations').insert(accommodationToRow(acc, userId)));
+  }, [userId]);
 
   const updateAccommodation = useCallback((id: string, data: Partial<Accommodation>) => {
     setAccommodations((prev) => prev.map((a) => a.id === id ? { ...a, ...data } : a));
-  }, [setAccommodations]);
+    bg(getClient().from('accommodations').update(partialToSnake(data)).eq('id', id));
+  }, []);
 
   const deleteAccommodation = useCallback((id: string) => {
     setAccommodations((prev) => prev.filter((a) => a.id !== id));
-  }, [setAccommodations]);
+    bg(getClient().from('accommodations').delete().eq('id', id));
+  }, []);
 
   const getAccommodationsForTrip = useCallback((tripId: string) => {
     return accommodations.filter((a) => a.tripId === tripId).sort((a, b) =>
@@ -184,19 +250,32 @@ export function TripProvider({ children }: { children: React.ReactNode }) {
   const addPlace = useCallback((tripId: string, data: Omit<Place, 'id' | 'tripId' | 'createdAt' | 'scheduleStatus' | 'scheduledDayIds'>) => {
     const place: Place = { ...data, id: generateId(), tripId, scheduleStatus: 'unscheduled', scheduledDayIds: [], createdAt: new Date().toISOString() };
     setPlaces((prev) => [...prev, place]);
-  }, [setPlaces]);
+    bg(getClient().from('places').insert(placeToRow(place, userId)));
+  }, [userId]);
 
   const updatePlace = useCallback((id: string, data: Partial<Place>) => {
     setPlaces((prev) => prev.map((p) => p.id === id ? { ...p, ...data } : p));
-  }, [setPlaces]);
+    bg(getClient().from('places').update(partialToSnake(data)).eq('id', id));
+  }, []);
 
   const deletePlace = useCallback((id: string) => {
     setPlaces((prev) => prev.filter((p) => p.id !== id));
-    setDayPlans((prev) => prev.map((dp) => ({
-      ...dp,
-      items: dp.items.filter((item) => item.placeId !== id),
-    })));
-  }, [setPlaces, setDayPlans]);
+    setDayPlans((prev) => {
+      const updated = prev.map((dp) => ({
+        ...dp,
+        items: dp.items.filter((item) => item.placeId !== id),
+      }));
+      // Sync affected day plans to Supabase
+      updated.forEach((dp) => {
+        const original = prev.find((o) => o.id === dp.id);
+        if (original && original.items.length !== dp.items.length) {
+          bg(getClient().from('day_plans').update({ items: dp.items }).eq('id', dp.id));
+        }
+      });
+      return updated;
+    });
+    bg(getClient().from('places').delete().eq('id', id));
+  }, []);
 
   const getPlacesForTrip = useCallback((tripId: string) => {
     return places.filter((p) => p.tripId === tripId);
@@ -206,15 +285,18 @@ export function TripProvider({ children }: { children: React.ReactNode }) {
   const addExpense = useCallback((tripId: string, data: Omit<Expense, 'id' | 'tripId' | 'createdAt'>) => {
     const expense: Expense = { ...data, id: generateId(), tripId, createdAt: new Date().toISOString() };
     setExpenses((prev) => [...prev, expense]);
-  }, [setExpenses]);
+    bg(getClient().from('expenses').insert(expenseToRow(expense, userId)));
+  }, [userId]);
 
   const updateExpense = useCallback((id: string, data: Partial<Expense>) => {
     setExpenses((prev) => prev.map((e) => e.id === id ? { ...e, ...data } : e));
-  }, [setExpenses]);
+    bg(getClient().from('expenses').update(partialToSnake(data)).eq('id', id));
+  }, []);
 
   const deleteExpense = useCallback((id: string) => {
     setExpenses((prev) => prev.filter((e) => e.id !== id));
-  }, [setExpenses]);
+    bg(getClient().from('expenses').delete().eq('id', id));
+  }, []);
 
   const getExpensesForTrip = useCallback((tripId: string) => {
     return expenses.filter((e) => e.tripId === tripId).sort((a, b) =>
@@ -226,19 +308,31 @@ export function TripProvider({ children }: { children: React.ReactNode }) {
   const addTransport = useCallback((tripId: string, data: Omit<Transport, 'id' | 'tripId' | 'createdAt' | 'scheduleStatus' | 'scheduledDayIds'>) => {
     const transport: Transport = { ...data, id: generateId(), tripId, scheduleStatus: 'unscheduled', scheduledDayIds: [], createdAt: new Date().toISOString() };
     setTransports((prev) => [...prev, transport]);
-  }, [setTransports]);
+    bg(getClient().from('transports').insert(transportToRow(transport, userId)));
+  }, [userId]);
 
   const updateTransport = useCallback((id: string, data: Partial<Transport>) => {
     setTransports((prev) => prev.map((t) => t.id === id ? { ...t, ...data } : t));
-  }, [setTransports]);
+    bg(getClient().from('transports').update(partialToSnake(data)).eq('id', id));
+  }, []);
 
   const deleteTransport = useCallback((id: string) => {
     setTransports((prev) => prev.filter((t) => t.id !== id));
-    setDayPlans((prev) => prev.map((dp) => ({
-      ...dp,
-      items: dp.items.filter((item) => item.transportId !== id),
-    })));
-  }, [setTransports, setDayPlans]);
+    setDayPlans((prev) => {
+      const updated = prev.map((dp) => ({
+        ...dp,
+        items: dp.items.filter((item) => item.transportId !== id),
+      }));
+      updated.forEach((dp) => {
+        const original = prev.find((o) => o.id === dp.id);
+        if (original && original.items.length !== dp.items.length) {
+          bg(getClient().from('day_plans').update({ items: dp.items }).eq('id', dp.id));
+        }
+      });
+      return updated;
+    });
+    bg(getClient().from('transports').delete().eq('id', id));
+  }, []);
 
   const getTransportsForTrip = useCallback((tripId: string) => {
     return transports.filter((t) => t.tripId === tripId).sort((a, b) =>
@@ -249,55 +343,96 @@ export function TripProvider({ children }: { children: React.ReactNode }) {
   const scheduleTransport = useCallback((transportId: string, dayPlanId: string, sectionIndex: number, timeOfDay?: TimeOfDay) => {
     const tod = timeOfDay ?? 'morning';
     const newItem: DayPlanItem = { id: generateId(), transportId, order: 0, timeOfDay: tod };
-    setDayPlans((prev) => prev.map((dp) => {
-      if (dp.id !== dayPlanId) return dp;
-      const sectionItems = dp.items.filter((i) => (i.timeOfDay ?? 'morning') === tod);
-      const otherItems = dp.items.filter((i) => (i.timeOfDay ?? 'morning') !== tod);
-      sectionItems.splice(sectionIndex, 0, newItem);
-      const combined = [...otherItems, ...sectionItems];
-      return { ...dp, items: combined.map((item, i) => ({ ...item, order: i })) };
-    }));
-    setTransports((prev) => prev.map((t) =>
-      t.id === transportId ? { ...t, scheduleStatus: 'scheduled' as const, scheduledDayIds: [...(t.scheduledDayIds ?? []).filter((id) => id !== dayPlanId), dayPlanId] } : t
-    ));
-  }, [setDayPlans, setTransports]);
+    setDayPlans((prev) => {
+      const updated = prev.map((dp) => {
+        if (dp.id !== dayPlanId) return dp;
+        const sectionItems = dp.items.filter((i) => (i.timeOfDay ?? 'morning') === tod);
+        const otherItems = dp.items.filter((i) => (i.timeOfDay ?? 'morning') !== tod);
+        sectionItems.splice(sectionIndex, 0, newItem);
+        const combined = [...otherItems, ...sectionItems];
+        return { ...dp, items: combined.map((item, i) => ({ ...item, order: i })) };
+      });
+      const changed = updated.find((dp) => dp.id === dayPlanId);
+      if (changed) bg(getClient().from('day_plans').update({ items: changed.items }).eq('id', dayPlanId));
+      return updated;
+    });
+    setTransports((prev) => {
+      const updated = prev.map((t) =>
+        t.id === transportId ? { ...t, scheduleStatus: 'scheduled' as const, scheduledDayIds: [...(t.scheduledDayIds ?? []).filter((id) => id !== dayPlanId), dayPlanId] } : t
+      );
+      const changed = updated.find((t) => t.id === transportId);
+      if (changed) bg(getClient().from('transports').update({ schedule_status: changed.scheduleStatus, scheduled_day_ids: changed.scheduledDayIds }).eq('id', transportId));
+      return updated;
+    });
+  }, []);
 
   const unscheduleTransport = useCallback((transportId: string, dayPlanId?: string) => {
     if (dayPlanId) {
-      setDayPlans((prev) => prev.map((dp) =>
-        dp.id === dayPlanId
-          ? { ...dp, items: dp.items.filter((item) => item.transportId !== transportId).map((item, i) => ({ ...item, order: i })) }
-          : dp
-      ));
-      setTransports((prev) => prev.map((t) => {
-        if (t.id !== transportId) return t;
-        const remaining = (t.scheduledDayIds ?? []).filter((id) => id !== dayPlanId);
-        return { ...t, scheduledDayIds: remaining, scheduleStatus: remaining.length > 0 ? 'scheduled' as const : 'unscheduled' as const };
-      }));
+      setDayPlans((prev) => {
+        const updated = prev.map((dp) =>
+          dp.id === dayPlanId
+            ? { ...dp, items: dp.items.filter((item) => item.transportId !== transportId).map((item, i) => ({ ...item, order: i })) }
+            : dp
+        );
+        const changed = updated.find((dp) => dp.id === dayPlanId);
+        if (changed) bg(getClient().from('day_plans').update({ items: changed.items }).eq('id', dayPlanId));
+        return updated;
+      });
+      setTransports((prev) => {
+        const updated = prev.map((t) => {
+          if (t.id !== transportId) return t;
+          const remaining = (t.scheduledDayIds ?? []).filter((id) => id !== dayPlanId);
+          return { ...t, scheduledDayIds: remaining, scheduleStatus: remaining.length > 0 ? 'scheduled' as const : 'unscheduled' as const };
+        });
+        const changed = updated.find((t) => t.id === transportId);
+        if (changed) bg(getClient().from('transports').update({ schedule_status: changed.scheduleStatus, scheduled_day_ids: changed.scheduledDayIds }).eq('id', transportId));
+        return updated;
+      });
     } else {
-      setDayPlans((prev) => prev.map((dp) => ({
-        ...dp,
-        items: dp.items.filter((item) => item.transportId !== transportId).map((item, i) => ({ ...item, order: i })),
-      })));
-      setTransports((prev) => prev.map((t) =>
-        t.id === transportId ? { ...t, scheduleStatus: 'unscheduled' as const, scheduledDayIds: [] } : t
-      ));
+      setDayPlans((prev) => {
+        const updated = prev.map((dp) => ({
+          ...dp,
+          items: dp.items.filter((item) => item.transportId !== transportId).map((item, i) => ({ ...item, order: i })),
+        }));
+        // Sync all affected day plans
+        updated.forEach((dp) => {
+          const original = prev.find((o) => o.id === dp.id);
+          if (original && original.items.length !== dp.items.length) {
+            bg(getClient().from('day_plans').update({ items: dp.items }).eq('id', dp.id));
+          }
+        });
+        return updated;
+      });
+      setTransports((prev) => {
+        const updated = prev.map((t) =>
+          t.id === transportId ? { ...t, scheduleStatus: 'unscheduled' as const, scheduledDayIds: [] } : t
+        );
+        bg(getClient().from('transports').update({ schedule_status: 'unscheduled', scheduled_day_ids: [] }).eq('id', transportId));
+        return updated;
+      });
     }
-  }, [setDayPlans, setTransports]);
+  }, []);
 
   // --- Packing ---
   const addPackingItem = useCallback((tripId: string, data: Omit<PackingItem, 'id' | 'tripId' | 'createdAt'>) => {
     const item: PackingItem = { ...data, id: generateId(), tripId, createdAt: new Date().toISOString() };
     setPackingItems((prev) => [...prev, item]);
-  }, [setPackingItems]);
+    bg(getClient().from('packing_items').insert(packingItemToRow(item, userId)));
+  }, [userId]);
 
   const deletePackingItem = useCallback((id: string) => {
     setPackingItems((prev) => prev.filter((p) => p.id !== id));
-  }, [setPackingItems]);
+    bg(getClient().from('packing_items').delete().eq('id', id));
+  }, []);
 
   const togglePackingItem = useCallback((id: string) => {
-    setPackingItems((prev) => prev.map((p) => p.id === id ? { ...p, checked: !p.checked } : p));
-  }, [setPackingItems]);
+    setPackingItems((prev) => {
+      const updated = prev.map((p) => p.id === id ? { ...p, checked: !p.checked } : p);
+      const changed = updated.find((p) => p.id === id);
+      if (changed) bg(getClient().from('packing_items').update({ checked: changed.checked }).eq('id', id));
+      return updated;
+    });
+  }, []);
 
   const getPackingItemsForTrip = useCallback((tripId: string) => {
     return packingItems.filter((p) => p.tripId === tripId).sort((a, b) =>
@@ -322,86 +457,135 @@ export function TripProvider({ children }: { children: React.ReactNode }) {
         date,
         items: [],
       }));
+
+      // Insert all new day plans to Supabase
+      if (userId) {
+        const rows = newPlans.map((dp) => dayPlanToRow(dp, userId));
+        bg(getClient().from('day_plans').insert(rows));
+      }
+
       return [...prev, ...newPlans];
     });
-  }, [setDayPlans]);
+  }, [userId]);
 
   const updateDayPlan = useCallback((dayPlanId: string, data: Partial<Pick<DayPlan, 'theme' | 'notes'>>) => {
     setDayPlans((prev) => prev.map((dp) =>
       dp.id === dayPlanId ? { ...dp, ...data } : dp
     ));
-  }, [setDayPlans]);
+    bg(getClient().from('day_plans').update(partialToSnake(data)).eq('id', dayPlanId));
+  }, []);
 
   const schedulePlace = useCallback((placeId: string, dayPlanId: string, sectionIndex: number, timeOfDay?: TimeOfDay) => {
     const tod = timeOfDay ?? 'morning';
     const newItem: DayPlanItem = { id: generateId(), placeId, order: 0, timeOfDay: tod };
-    setDayPlans((prev) => prev.map((dp) => {
-      if (dp.id !== dayPlanId) return dp;
-      const sectionItems = dp.items.filter((i) => (i.timeOfDay ?? 'morning') === tod);
-      const otherItems = dp.items.filter((i) => (i.timeOfDay ?? 'morning') !== tod);
-      sectionItems.splice(sectionIndex, 0, newItem);
-      const combined = [...otherItems, ...sectionItems];
-      return { ...dp, items: combined.map((item, i) => ({ ...item, order: i })) };
-    }));
-    setPlaces((prev) => prev.map((p) =>
-      p.id === placeId ? { ...p, scheduleStatus: 'scheduled' as const, scheduledDayIds: [...(p.scheduledDayIds ?? []).filter((id) => id !== dayPlanId), dayPlanId] } : p
-    ));
-  }, [setDayPlans, setPlaces]);
+    setDayPlans((prev) => {
+      const updated = prev.map((dp) => {
+        if (dp.id !== dayPlanId) return dp;
+        const sectionItems = dp.items.filter((i) => (i.timeOfDay ?? 'morning') === tod);
+        const otherItems = dp.items.filter((i) => (i.timeOfDay ?? 'morning') !== tod);
+        sectionItems.splice(sectionIndex, 0, newItem);
+        const combined = [...otherItems, ...sectionItems];
+        return { ...dp, items: combined.map((item, i) => ({ ...item, order: i })) };
+      });
+      const changed = updated.find((dp) => dp.id === dayPlanId);
+      if (changed) bg(getClient().from('day_plans').update({ items: changed.items }).eq('id', dayPlanId));
+      return updated;
+    });
+    setPlaces((prev) => {
+      const updated = prev.map((p) =>
+        p.id === placeId ? { ...p, scheduleStatus: 'scheduled' as const, scheduledDayIds: [...(p.scheduledDayIds ?? []).filter((id) => id !== dayPlanId), dayPlanId] } : p
+      );
+      const changed = updated.find((p) => p.id === placeId);
+      if (changed) bg(getClient().from('places').update({ schedule_status: changed.scheduleStatus, scheduled_day_ids: changed.scheduledDayIds }).eq('id', placeId));
+      return updated;
+    });
+  }, []);
 
   const unschedulePlace = useCallback((placeId: string, dayPlanId?: string) => {
     if (dayPlanId) {
-      // Remove from specific day only
-      setDayPlans((prev) => prev.map((dp) =>
-        dp.id === dayPlanId
-          ? { ...dp, items: dp.items.filter((item) => item.placeId !== placeId).map((item, i) => ({ ...item, order: i })) }
-          : dp
-      ));
-      setPlaces((prev) => prev.map((p) => {
-        if (p.id !== placeId) return p;
-        const remaining = (p.scheduledDayIds ?? []).filter((id) => id !== dayPlanId);
-        return { ...p, scheduledDayIds: remaining, scheduleStatus: remaining.length > 0 ? 'scheduled' as const : 'unscheduled' as const };
-      }));
+      setDayPlans((prev) => {
+        const updated = prev.map((dp) =>
+          dp.id === dayPlanId
+            ? { ...dp, items: dp.items.filter((item) => item.placeId !== placeId).map((item, i) => ({ ...item, order: i })) }
+            : dp
+        );
+        const changed = updated.find((dp) => dp.id === dayPlanId);
+        if (changed) bg(getClient().from('day_plans').update({ items: changed.items }).eq('id', dayPlanId));
+        return updated;
+      });
+      setPlaces((prev) => {
+        const updated = prev.map((p) => {
+          if (p.id !== placeId) return p;
+          const remaining = (p.scheduledDayIds ?? []).filter((id) => id !== dayPlanId);
+          return { ...p, scheduledDayIds: remaining, scheduleStatus: remaining.length > 0 ? 'scheduled' as const : 'unscheduled' as const };
+        });
+        const changed = updated.find((p) => p.id === placeId);
+        if (changed) bg(getClient().from('places').update({ schedule_status: changed.scheduleStatus, scheduled_day_ids: changed.scheduledDayIds }).eq('id', placeId));
+        return updated;
+      });
     } else {
-      // Remove from all days
-      setDayPlans((prev) => prev.map((dp) => ({
-        ...dp,
-        items: dp.items.filter((item) => item.placeId !== placeId).map((item, i) => ({ ...item, order: i })),
-      })));
-      setPlaces((prev) => prev.map((p) =>
-        p.id === placeId ? { ...p, scheduleStatus: 'unscheduled' as const, scheduledDayIds: [] } : p
-      ));
+      setDayPlans((prev) => {
+        const updated = prev.map((dp) => ({
+          ...dp,
+          items: dp.items.filter((item) => item.placeId !== placeId).map((item, i) => ({ ...item, order: i })),
+        }));
+        updated.forEach((dp) => {
+          const original = prev.find((o) => o.id === dp.id);
+          if (original && original.items.length !== dp.items.length) {
+            bg(getClient().from('day_plans').update({ items: dp.items }).eq('id', dp.id));
+          }
+        });
+        return updated;
+      });
+      setPlaces((prev) => {
+        const updated = prev.map((p) =>
+          p.id === placeId ? { ...p, scheduleStatus: 'unscheduled' as const, scheduledDayIds: [] } : p
+        );
+        bg(getClient().from('places').update({ schedule_status: 'unscheduled', scheduled_day_ids: [] }).eq('id', placeId));
+        return updated;
+      });
     }
-  }, [setDayPlans, setPlaces]);
+  }, []);
 
   const toggleLockPlace = useCallback((entityId: string, dayPlanId: string) => {
-    setDayPlans((prev) => prev.map((dp) => {
-      if (dp.id !== dayPlanId) return dp;
-      return {
-        ...dp,
-        items: dp.items.map((item) =>
-          item.placeId === entityId || item.transportId === entityId ? { ...item, locked: !item.locked } : item
-        ),
-      };
-    }));
-  }, [setDayPlans]);
+    setDayPlans((prev) => {
+      const updated = prev.map((dp) => {
+        if (dp.id !== dayPlanId) return dp;
+        return {
+          ...dp,
+          items: dp.items.map((item) =>
+            item.placeId === entityId || item.transportId === entityId ? { ...item, locked: !item.locked } : item
+          ),
+        };
+      });
+      const changed = updated.find((dp) => dp.id === dayPlanId);
+      if (changed) bg(getClient().from('day_plans').update({ items: changed.items }).eq('id', dayPlanId));
+      return updated;
+    });
+  }, []);
 
   const findItemByEntityId = (items: DayPlanItem[], entityId: string) =>
     items.find((i) => i.placeId === entityId || i.transportId === entityId);
 
   const reorderInDay = useCallback((dayPlanId: string, entityId: string, destSectionIndex: number, timeOfDay?: TimeOfDay) => {
     const tod = timeOfDay ?? 'morning';
-    setDayPlans((prev) => prev.map((dp) => {
-      if (dp.id !== dayPlanId) return dp;
-      const movedItem = findItemByEntityId(dp.items, entityId);
-      if (!movedItem) return dp;
-      const remaining = dp.items.filter((i) => i !== movedItem);
-      const sectionItems = remaining.filter((i) => (i.timeOfDay ?? 'morning') === tod);
-      const otherItems = remaining.filter((i) => (i.timeOfDay ?? 'morning') !== tod);
-      sectionItems.splice(destSectionIndex, 0, { ...movedItem, timeOfDay: tod });
-      const combined = [...otherItems, ...sectionItems];
-      return { ...dp, items: combined.map((item, i) => ({ ...item, order: i })) };
-    }));
-  }, [setDayPlans]);
+    setDayPlans((prev) => {
+      const updated = prev.map((dp) => {
+        if (dp.id !== dayPlanId) return dp;
+        const movedItem = findItemByEntityId(dp.items, entityId);
+        if (!movedItem) return dp;
+        const remaining = dp.items.filter((i) => i !== movedItem);
+        const sectionItems = remaining.filter((i) => (i.timeOfDay ?? 'morning') === tod);
+        const otherItems = remaining.filter((i) => (i.timeOfDay ?? 'morning') !== tod);
+        sectionItems.splice(destSectionIndex, 0, { ...movedItem, timeOfDay: tod });
+        const combined = [...otherItems, ...sectionItems];
+        return { ...dp, items: combined.map((item, i) => ({ ...item, order: i })) };
+      });
+      const changed = updated.find((dp) => dp.id === dayPlanId);
+      if (changed) bg(getClient().from('day_plans').update({ items: changed.items }).eq('id', dayPlanId));
+      return updated;
+    });
+  }, []);
 
   const moveBetweenDays = useCallback((entityId: string, sourceDayId: string, destDayId: string, destSectionIndex: number, timeOfDay?: TimeOfDay) => {
     const tod = timeOfDay ?? 'morning';
@@ -423,7 +607,7 @@ export function TripProvider({ children }: { children: React.ReactNode }) {
 
       if (!movedItem) return prev;
 
-      return updated.map((dp) => {
+      const final = updated.map((dp) => {
         if (dp.id === destDayId) {
           const sectionItems = dp.items.filter((i) => (i.timeOfDay ?? 'morning') === tod);
           const otherItems = dp.items.filter((i) => (i.timeOfDay ?? 'morning') !== tod);
@@ -433,26 +617,45 @@ export function TripProvider({ children }: { children: React.ReactNode }) {
         }
         return dp;
       });
+
+      // Sync both affected day plans
+      const src = final.find((dp) => dp.id === sourceDayId);
+      const dst = final.find((dp) => dp.id === destDayId);
+      if (src) bg(getClient().from('day_plans').update({ items: src.items }).eq('id', sourceDayId));
+      if (dst) bg(getClient().from('day_plans').update({ items: dst.items }).eq('id', destDayId));
+
+      return final;
     });
 
     if (isTransport) {
-      setTransports((prev) => prev.map((t) => {
-        if (t.id !== entityId) return t;
-        const ids = (t.scheduledDayIds ?? []).filter((id) => id !== sourceDayId);
-        if (!ids.includes(destDayId)) ids.push(destDayId);
-        return { ...t, scheduledDayIds: ids };
-      }));
+      setTransports((prev) => {
+        const updated = prev.map((t) => {
+          if (t.id !== entityId) return t;
+          const ids = (t.scheduledDayIds ?? []).filter((id) => id !== sourceDayId);
+          if (!ids.includes(destDayId)) ids.push(destDayId);
+          return { ...t, scheduledDayIds: ids };
+        });
+        const changed = updated.find((t) => t.id === entityId);
+        if (changed) bg(getClient().from('transports').update({ scheduled_day_ids: changed.scheduledDayIds }).eq('id', entityId));
+        return updated;
+      });
     } else {
-      setPlaces((prev) => prev.map((p) => {
-        if (p.id !== entityId) return p;
-        const ids = (p.scheduledDayIds ?? []).filter((id) => id !== sourceDayId);
-        if (!ids.includes(destDayId)) ids.push(destDayId);
-        return { ...p, scheduledDayIds: ids };
-      }));
+      setPlaces((prev) => {
+        const updated = prev.map((p) => {
+          if (p.id !== entityId) return p;
+          const ids = (p.scheduledDayIds ?? []).filter((id) => id !== sourceDayId);
+          if (!ids.includes(destDayId)) ids.push(destDayId);
+          return { ...p, scheduledDayIds: ids };
+        });
+        const changed = updated.find((p) => p.id === entityId);
+        if (changed) bg(getClient().from('places').update({ scheduled_day_ids: changed.scheduledDayIds }).eq('id', entityId));
+        return updated;
+      });
     }
-  }, [setDayPlans, setPlaces, setTransports]);
+  }, []);
 
   const value = useMemo<TripContextValue>(() => ({
+    loading,
     trips, createTrip, updateTrip, deleteTrip, getTrip,
     flights, addFlight, updateFlight, deleteFlight, getFlightsForTrip,
     accommodations, addAccommodation, updateAccommodation, deleteAccommodation, getAccommodationsForTrip,
@@ -462,6 +665,7 @@ export function TripProvider({ children }: { children: React.ReactNode }) {
     packingItems, addPackingItem, deletePackingItem, togglePackingItem, getPackingItemsForTrip,
     dayPlans, getDayPlansForTrip, initializeDayPlans, updateDayPlan, schedulePlace, unschedulePlace, toggleLockPlace, reorderInDay, moveBetweenDays,
   }), [
+    loading,
     trips, createTrip, updateTrip, deleteTrip, getTrip,
     flights, addFlight, updateFlight, deleteFlight, getFlightsForTrip,
     accommodations, addAccommodation, updateAccommodation, deleteAccommodation, getAccommodationsForTrip,
