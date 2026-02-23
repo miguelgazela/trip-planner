@@ -56,15 +56,6 @@ const navItems = [
     ),
   },
   {
-    label: 'Packing',
-    href: '/packing',
-    icon: (
-      <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
-      </svg>
-    ),
-  },
-  {
     label: 'Planner',
     href: '/planner',
     icon: (
@@ -81,7 +72,7 @@ export default function MobileNav({ tripId }: MobileNavProps) {
 
   return (
     <nav className="md:hidden fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 z-50 print:hidden">
-      <div className="flex justify-around items-center h-16 px-2">
+      <div className="flex items-center h-16 px-1 overflow-x-auto scrollbar-hide">
         {navItems.map((item) => {
           const href = `${basePath}${item.href}`;
           const isActive = item.href === ''
@@ -93,12 +84,12 @@ export default function MobileNav({ tripId }: MobileNavProps) {
               key={item.label}
               href={href}
               className={cn(
-                'flex flex-col items-center gap-0.5 px-2 py-1 rounded-lg text-xs transition-colors',
+                'flex flex-col items-center gap-0.5 min-w-[4rem] px-1.5 py-1 rounded-lg text-[10px] transition-colors flex-shrink-0',
                 isActive ? 'text-brand-600' : 'text-gray-500'
               )}
             >
               {item.icon}
-              <span>{item.label}</span>
+              <span className="truncate">{item.label}</span>
             </Link>
           );
         })}

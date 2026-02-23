@@ -6,7 +6,6 @@ import { format, parseISO } from 'date-fns';
 import { useTripContext } from '@/providers/TripProvider';
 import { formatDate, formatDayLabel, formatTripDates } from '@/lib/date-utils';
 import { formatCurrency, totalCost } from '@/lib/currency';
-import { PACKING_CATEGORIES } from '@/lib/packing-categories';
 import { getAccommodationForDay } from '@/lib/date-utils';
 import { TimeOfDay } from '@/types/planner';
 import { TRANSPORT_TYPES } from '@/lib/transport-types';
@@ -29,7 +28,6 @@ export default function PrintPage() {
     getPlacesForTrip,
     getExpensesForTrip,
     getTransportsForTrip,
-    getPackingItemsForTrip,
     getDayPlansForTrip,
   } = useTripContext();
 
@@ -47,7 +45,6 @@ export default function PrintPage() {
   const places = getPlacesForTrip(tripId);
   const expenses = getExpensesForTrip(tripId);
   const transports = getTransportsForTrip(tripId);
-  const packingItems = getPackingItemsForTrip(tripId);
   const dayPlans = getDayPlansForTrip(tripId);
 
   const flightsCost = totalCost(flights);
@@ -61,14 +58,6 @@ export default function PrintPage() {
 
   const placesById = Object.fromEntries(places.map((p) => [p.id, p]));
   const transportsById = Object.fromEntries(transports.map((t) => [t.id, t]));
-  const checkedPacking = packingItems.filter((i) => i.checked).length;
-
-  const packedGroups = PACKING_CATEGORIES
-    .map((cat) => ({
-      ...cat,
-      items: packingItems.filter((i) => i.category === cat.value),
-    }))
-    .filter((g) => g.items.length > 0);
 
   return (
     <div className="max-w-3xl mx-auto px-6 py-8 print:px-0 print:py-0 print:max-w-none">
@@ -349,42 +338,6 @@ export default function PrintPage() {
           <p className="text-right text-sm font-medium mt-2">
             Committed: {formatCurrency(expensesCommitted, trip.currency)}
           </p>
-        </section>
-      )}
-
-      {/* Packing List */}
-      {packingItems.length > 0 && (
-        <section className="mb-8 break-inside-avoid">
-          <h2 className="text-xl font-bold text-gray-900 mb-1 flex items-center gap-2">
-            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
-            </svg>
-            Packing List
-          </h2>
-          <p className="text-sm text-gray-500 mb-3">
-            {checkedPacking} of {packingItems.length} packed ({Math.round((checkedPacking / packingItems.length) * 100)}%)
-          </p>
-          <div className="grid grid-cols-2 gap-x-6 gap-y-3">
-            {packedGroups.map((group) => (
-              <div key={group.value}>
-                <p className="text-xs font-semibold text-gray-700 mb-1">
-                  {group.label} ({group.items.filter((i) => i.checked).length}/{group.items.length})
-                </p>
-                {group.items.map((item) => (
-                  <div key={item.id} className="flex items-center gap-1.5 text-sm py-0.5">
-                    <span className={`w-3.5 h-3.5 border rounded-sm flex items-center justify-center text-xs ${
-                      item.checked ? 'bg-green-500 border-green-500 text-white' : 'border-gray-300'
-                    }`}>
-                      {item.checked && '✓'}
-                    </span>
-                    <span className={item.checked ? 'line-through text-gray-400' : 'text-gray-700'}>
-                      {item.name}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            ))}
-          </div>
         </section>
       )}
 

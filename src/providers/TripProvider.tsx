@@ -7,7 +7,6 @@ import { generateId } from '@/lib/id';
 import { getTripDays } from '@/lib/date-utils';
 import { Trip, Flight, Accommodation, Place, Expense, Transport } from '@/types/trip';
 import { DayPlan, DayPlanItem, TimeOfDay } from '@/types/planner';
-import { PackingItem } from '@/types/packing';
 import {
   tripToRow, rowToTrip,
   flightToRow, rowToFlight,
@@ -15,7 +14,6 @@ import {
   placeToRow, rowToPlace,
   expenseToRow, rowToExpense,
   transportToRow, rowToTransport,
-  packingItemToRow, rowToPackingItem,
   dayPlanToRow, rowToDayPlan,
   partialToSnake,
 } from '@/lib/supabase/mappers';
@@ -60,12 +58,6 @@ interface TripContextValue {
   scheduleTransport: (transportId: string, dayPlanId: string, sectionIndex: number, timeOfDay?: TimeOfDay) => void;
   unscheduleTransport: (transportId: string, dayPlanId?: string) => void;
 
-  packingItems: PackingItem[];
-  addPackingItem: (tripId: string, data: Omit<PackingItem, 'id' | 'tripId' | 'createdAt'>) => void;
-  deletePackingItem: (id: string) => void;
-  togglePackingItem: (id: string) => void;
-  getPackingItemsForTrip: (tripId: string) => PackingItem[];
-
   dayPlans: DayPlan[];
   getDayPlansForTrip: (tripId: string) => DayPlan[];
   initializeDayPlans: (trip: Trip) => void;
@@ -105,7 +97,6 @@ export function TripProvider({ children }: { children: React.ReactNode }) {
   const [places, setPlaces] = useState<Place[]>([]);
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [transports, setTransports] = useState<Transport[]>([]);
-  const [packingItems, setPackingItems] = useState<PackingItem[]>([]);
   const [dayPlans, setDayPlans] = useState<DayPlan[]>([]);
 
   // --- Initial fetch from Supabase ---
@@ -118,7 +109,6 @@ export function TripProvider({ children }: { children: React.ReactNode }) {
       setPlaces([]);
       setExpenses([]);
       setTransports([]);
-      setPackingItems([]);
       setDayPlans([]);
       setLoading(false);
       return;
@@ -135,7 +125,6 @@ export function TripProvider({ children }: { children: React.ReactNode }) {
         { data: placesData },
         { data: expensesData },
         { data: transportsData },
-        { data: packingData },
         { data: dayPlansData },
       ] = await Promise.all([
         supabase.from('trips').select('*'),
@@ -144,7 +133,6 @@ export function TripProvider({ children }: { children: React.ReactNode }) {
         supabase.from('places').select('*'),
         supabase.from('expenses').select('*'),
         supabase.from('transports').select('*'),
-        supabase.from('packing_items').select('*'),
         supabase.from('day_plans').select('*'),
       ]);
 
@@ -156,7 +144,6 @@ export function TripProvider({ children }: { children: React.ReactNode }) {
       setPlaces((placesData ?? []).map(rowToPlace));
       setExpenses((expensesData ?? []).map(rowToExpense));
       setTransports((transportsData ?? []).map(rowToTransport));
-      setPackingItems((packingData ?? []).map(rowToPackingItem));
       setDayPlans((dayPlansData ?? []).map(rowToDayPlan));
       setLoading(false);
     }
@@ -192,7 +179,6 @@ export function TripProvider({ children }: { children: React.ReactNode }) {
     setPlaces((prev) => prev.filter((p) => p.tripId !== tripId));
     setExpenses((prev) => prev.filter((e) => e.tripId !== tripId));
     setTransports((prev) => prev.filter((t) => t.tripId !== tripId));
-    setPackingItems((prev) => prev.filter((p) => p.tripId !== tripId));
     setDayPlans((prev) => prev.filter((d) => d.tripId !== tripId));
     // CASCADE handles children in DB — just delete the trip
     bg(getClient().from('trips').delete().eq('id', tripId));
@@ -412,33 +398,6 @@ export function TripProvider({ children }: { children: React.ReactNode }) {
       });
     }
   }, []);
-
-  // --- Packing ---
-  const addPackingItem = useCallback((tripId: string, data: Omit<PackingItem, 'id' | 'tripId' | 'createdAt'>) => {
-    const item: PackingItem = { ...data, id: generateId(), tripId, createdAt: new Date().toISOString() };
-    setPackingItems((prev) => [...prev, item]);
-    bg(getClient().from('packing_items').insert(packingItemToRow(item, userId)));
-  }, [userId]);
-
-  const deletePackingItem = useCallback((id: string) => {
-    setPackingItems((prev) => prev.filter((p) => p.id !== id));
-    bg(getClient().from('packing_items').delete().eq('id', id));
-  }, []);
-
-  const togglePackingItem = useCallback((id: string) => {
-    setPackingItems((prev) => {
-      const updated = prev.map((p) => p.id === id ? { ...p, checked: !p.checked } : p);
-      const changed = updated.find((p) => p.id === id);
-      if (changed) bg(getClient().from('packing_items').update({ checked: changed.checked }).eq('id', id));
-      return updated;
-    });
-  }, []);
-
-  const getPackingItemsForTrip = useCallback((tripId: string) => {
-    return packingItems.filter((p) => p.tripId === tripId).sort((a, b) =>
-      new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
-    );
-  }, [packingItems]);
 
   // --- Day Plans ---
   const getDayPlansForTrip = useCallback((tripId: string) => {
@@ -662,7 +621,6 @@ export function TripProvider({ children }: { children: React.ReactNode }) {
     places, addPlace, updatePlace, deletePlace, getPlacesForTrip,
     expenses, addExpense, updateExpense, deleteExpense, getExpensesForTrip,
     transports, addTransport, updateTransport, deleteTransport, getTransportsForTrip, scheduleTransport, unscheduleTransport,
-    packingItems, addPackingItem, deletePackingItem, togglePackingItem, getPackingItemsForTrip,
     dayPlans, getDayPlansForTrip, initializeDayPlans, updateDayPlan, schedulePlace, unschedulePlace, toggleLockPlace, reorderInDay, moveBetweenDays,
   }), [
     loading,
@@ -672,7 +630,6 @@ export function TripProvider({ children }: { children: React.ReactNode }) {
     places, addPlace, updatePlace, deletePlace, getPlacesForTrip,
     expenses, addExpense, updateExpense, deleteExpense, getExpensesForTrip,
     transports, addTransport, updateTransport, deleteTransport, getTransportsForTrip, scheduleTransport, unscheduleTransport,
-    packingItems, addPackingItem, deletePackingItem, togglePackingItem, getPackingItemsForTrip,
     dayPlans, getDayPlansForTrip, initializeDayPlans, updateDayPlan, schedulePlace, unschedulePlace, toggleLockPlace, reorderInDay, moveBetweenDays,
   ]);
 

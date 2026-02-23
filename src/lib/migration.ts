@@ -1,7 +1,6 @@
 import { getSupabaseBrowserClient } from '@/lib/supabase/client';
 import { Trip, Flight, Accommodation, Place, Expense, Transport } from '@/types/trip';
 import { DayPlan } from '@/types/planner';
-import { PackingItem } from '@/types/packing';
 import {
   tripToRow,
   flightToRow,
@@ -9,7 +8,6 @@ import {
   placeToRow,
   expenseToRow,
   transportToRow,
-  packingItemToRow,
   dayPlanToRow,
 } from '@/lib/supabase/mappers';
 import { getAllImages } from '@/lib/image-cache';
@@ -21,7 +19,6 @@ const BACKUP_KEYS = [
   'trip-planner:places',
   'trip-planner:expenses',
   'trip-planner:transports',
-  'trip-planner:packing',
   'trip-planner:dayplans',
 ] as const;
 
@@ -78,12 +75,11 @@ export async function migrateToSupabase(
     const places = readLocal<Place>('trip-planner:places');
     const expenses = readLocal<Expense>('trip-planner:expenses');
     const transports = readLocal<Transport>('trip-planner:transports');
-    const packingItems = readLocal<PackingItem>('trip-planner:packing');
     const dayPlans = readLocal<DayPlan>('trip-planner:dayplans');
 
     const total = trips.length + flights.length + accommodations.length +
       places.length + expenses.length + transports.length +
-      packingItems.length + dayPlans.length;
+      dayPlans.length;
     let current = 0;
 
     const report = (step: string) => {
@@ -160,14 +156,6 @@ export async function migrateToSupabase(
       transports.forEach(() => report('Transports'));
     }
 
-    // Upsert packing items
-    if (packingItems.length > 0) {
-      const rows = packingItems.map((p) => packingItemToRow(p, userId));
-      const { error } = await supabase.from('packing_items').upsert(rows, { onConflict: 'id' });
-      if (error) throw new Error(`packing_items: ${error.message}`);
-      packingItems.forEach(() => report('Packing'));
-    }
-
     // Upsert day plans
     if (dayPlans.length > 0) {
       const rows = dayPlans.map((d) => dayPlanToRow(d, userId));
@@ -235,13 +223,12 @@ export async function importBackupToSupabase(
     const places = (data['trip-planner:places'] ?? []) as Place[];
     const expenses = (data['trip-planner:expenses'] ?? []) as Expense[];
     const transports = (data['trip-planner:transports'] ?? []) as Transport[];
-    const packingItems = (data['trip-planner:packing'] ?? []) as PackingItem[];
     const dayPlans = (data['trip-planner:dayplans'] ?? []) as DayPlan[];
     const images = (data['trip-planner:images'] ?? {}) as Record<string, string>;
 
     const total = trips.length + flights.length + accommodations.length +
       places.length + expenses.length + transports.length +
-      packingItems.length + dayPlans.length + Object.keys(images).length;
+      dayPlans.length + Object.keys(images).length;
     let current = 0;
 
     const report = (step: string) => {
@@ -307,13 +294,6 @@ export async function importBackupToSupabase(
       const { error } = await supabase.from('transports').upsert(rows, { onConflict: 'id' });
       if (error) throw new Error(`transports: ${error.message}`);
       transports.forEach(() => report('Transports'));
-    }
-
-    if (packingItems.length > 0) {
-      const rows = packingItems.map((p) => packingItemToRow(p, userId));
-      const { error } = await supabase.from('packing_items').upsert(rows, { onConflict: 'id' });
-      if (error) throw new Error(`packing_items: ${error.message}`);
-      packingItems.forEach(() => report('Packing'));
     }
 
     if (dayPlans.length > 0) {

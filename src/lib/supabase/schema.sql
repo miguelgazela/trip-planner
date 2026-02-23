@@ -182,29 +182,7 @@ create policy "Users can CRUD own transports"
 create index if not exists idx_transports_trip_id on transports(trip_id);
 
 -- ============================================================
--- 7. PACKING ITEMS
--- ============================================================
-create table if not exists packing_items (
-  id text primary key,
-  user_id uuid not null references auth.users(id) on delete cascade,
-  trip_id text not null references trips(id) on delete cascade,
-  name text not null,
-  category text not null,
-  checked boolean not null default false,
-  created_at text not null
-);
-
-alter table packing_items enable row level security;
-
-create policy "Users can CRUD own packing_items"
-  on packing_items for all
-  using (auth.uid() = user_id)
-  with check (auth.uid() = user_id);
-
-create index if not exists idx_packing_items_trip_id on packing_items(trip_id);
-
--- ============================================================
--- 8. DAY PLANS
+-- 7. DAY PLANS
 -- ============================================================
 create table if not exists day_plans (
   id text primary key,

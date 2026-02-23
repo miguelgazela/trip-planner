@@ -11,7 +11,7 @@ import Button from '@/components/ui/Button';
 import { hasLocalData, hasMigrated, migrateToSupabase, importBackupToSupabase, MigrationProgress } from '@/lib/migration';
 
 export default function HomePage() {
-  const { trips, flights, accommodations, places, expenses, transports, packingItems, dayPlans, deleteTrip, loading } = useTripContext();
+  const { trips, flights, accommodations, places, expenses, transports, dayPlans, deleteTrip, loading } = useTripContext();
   const { user } = useAuth();
   const [deleteId, setDeleteId] = useState<string | null>(null);
 
@@ -77,7 +77,6 @@ export default function HomePage() {
       'trip-planner:places': places,
       'trip-planner:expenses': expenses,
       'trip-planner:transports': transports,
-      'trip-planner:packing': packingItems,
       'trip-planner:dayplans': dayPlans,
     };
     const blob = new Blob([JSON.stringify(data)], { type: 'application/json' });

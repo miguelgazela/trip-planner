@@ -140,7 +140,7 @@ export default function DailyPlanner({ trip }: DailyPlannerProps) {
   return (
     <DragDropContext onDragEnd={handleDragEnd}>
       <div>
-        <div className="sticky top-0 z-10 bg-white pb-4">
+        <div className="md:sticky md:top-0 z-10 bg-white pb-4">
           <UnscheduledPool places={places} transports={transports} currency={trip.currency} />
         </div>
 
@@ -160,7 +160,29 @@ export default function DailyPlanner({ trip }: DailyPlannerProps) {
           </button>
         </div>
 
-        <div className="overflow-x-auto">
+        {/* Mobile: vertical stack, Desktop: horizontal grid */}
+        <div className="flex flex-col gap-4 md:hidden">
+          {dayPlans.map((dayPlan) => (
+            <DayColumn
+              key={dayPlan.id}
+              dayPlan={dayPlan}
+              places={places}
+              transports={transports}
+              flights={flights}
+              accommodations={accommodations}
+              currency={trip.currency}
+              expenses={expenses}
+              compactMode={compactMode}
+            />
+          ))}
+          {dayPlans.length === 0 && (
+            <p className="text-sm text-gray-500 text-center py-8">
+              No days to plan. Check your trip dates.
+            </p>
+          )}
+        </div>
+
+        <div className="hidden md:block overflow-x-auto">
           <div className="min-w-min">
             <div className="grid gap-4" style={{ gridTemplateColumns: `repeat(${Math.min(dayPlans.length, MAX_COLUMNS)}, minmax(220px, 1fr))` }}>
               {dayPlans.map((dayPlan) => (

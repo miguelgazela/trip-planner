@@ -89,8 +89,3 @@ export const transportSchema = z.object({
   splitCount: z.number().int().min(1).optional(),
   notes: z.string().max(500).optional(),
 });
-
-export const packingItemSchema = z.object({
-  name: z.string().min(1, 'Item name is required').max(100),
-  category: z.enum(['documents', 'clothing', 'electronics', 'toiletries', 'health', 'other']),
-});

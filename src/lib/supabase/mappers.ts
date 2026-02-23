@@ -1,6 +1,5 @@
 import { Trip, Flight, Accommodation, Place, Expense, Transport } from '@/types/trip';
 import { DayPlan } from '@/types/planner';
-import { PackingItem } from '@/types/packing';
 
 // ---------------------------------------------------------------------------
 // Generic snake_case <-> camelCase helpers
@@ -268,33 +267,6 @@ export function rowToTransport(row: Record<string, unknown>): Transport {
     notes: (row.notes as string) ?? undefined,
     scheduleStatus: (row.schedule_status as Transport['scheduleStatus']) ?? 'unscheduled',
     scheduledDayIds: (row.scheduled_day_ids as string[]) ?? [],
-    createdAt: row.created_at as string,
-  };
-}
-
-// ---------------------------------------------------------------------------
-// PackingItem
-// ---------------------------------------------------------------------------
-
-export function packingItemToRow(item: PackingItem, userId: string) {
-  return {
-    id: item.id,
-    user_id: userId,
-    trip_id: item.tripId,
-    name: item.name,
-    category: item.category,
-    checked: item.checked,
-    created_at: item.createdAt,
-  };
-}
-
-export function rowToPackingItem(row: Record<string, unknown>): PackingItem {
-  return {
-    id: row.id as string,
-    tripId: row.trip_id as string,
-    name: row.name as string,
-    category: row.category as PackingItem['category'],
-    checked: row.checked as boolean,
     createdAt: row.created_at as string,
   };
 }
