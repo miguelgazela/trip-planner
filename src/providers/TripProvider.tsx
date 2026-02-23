@@ -144,7 +144,24 @@ export function TripProvider({ children }: { children: React.ReactNode }) {
       setPlaces((placesData ?? []).map(rowToPlace));
       setExpenses((expensesData ?? []).map(rowToExpense));
       setTransports((transportsData ?? []).map(rowToTransport));
-      setDayPlans((dayPlansData ?? []).map(rowToDayPlan));
+
+      // Deduplicate day plans: keep the first per (trip_id, date), delete extras
+      const allDayPlans = (dayPlansData ?? []).map(rowToDayPlan);
+      const seen = new Map<string, DayPlan>();
+      const duplicateIds: string[] = [];
+      for (const dp of allDayPlans) {
+        const key = `${dp.tripId}:${dp.date}`;
+        if (!seen.has(key)) {
+          seen.set(key, dp);
+        } else {
+          duplicateIds.push(dp.id);
+        }
+      }
+      setDayPlans(Array.from(seen.values()));
+      // Clean up duplicates from DB in background
+      if (duplicateIds.length > 0) {
+        bg(supabase.from('day_plans').delete().in('id', duplicateIds));
+      }
       setLoading(false);
     }
 
@@ -404,10 +421,17 @@ export function TripProvider({ children }: { children: React.ReactNode }) {
     return dayPlans.filter((d) => d.tripId === tripId).sort((a, b) => a.date.localeCompare(b.date));
   }, [dayPlans]);
 
+  const initializeDayPlansRef = useRef(new Set<string>());
+
   const initializeDayPlans = useCallback((trip: Trip) => {
+    // Guard against double-invocation (React Strict Mode) creating duplicate DB rows
+    if (initializeDayPlansRef.current.has(trip.id)) return;
+
     setDayPlans((prev) => {
       const existing = prev.filter((d) => d.tripId === trip.id);
       if (existing.length > 0) return prev;
+
+      initializeDayPlansRef.current.add(trip.id);
 
       const days = getTripDays(trip.startDate, trip.endDate);
       const newPlans: DayPlan[] = days.map((date) => ({
