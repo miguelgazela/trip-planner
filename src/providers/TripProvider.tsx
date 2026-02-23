@@ -145,13 +145,18 @@ export function TripProvider({ children }: { children: React.ReactNode }) {
       setExpenses((expensesData ?? []).map(rowToExpense));
       setTransports((transportsData ?? []).map(rowToTransport));
 
-      // Deduplicate day plans: keep the first per (trip_id, date), delete extras
+      // Deduplicate day plans: keep the one with the most items per (trip_id, date), delete extras
       const allDayPlans = (dayPlansData ?? []).map(rowToDayPlan);
       const seen = new Map<string, DayPlan>();
       const duplicateIds: string[] = [];
       for (const dp of allDayPlans) {
         const key = `${dp.tripId}:${dp.date}`;
-        if (!seen.has(key)) {
+        const existing = seen.get(key);
+        if (!existing) {
+          seen.set(key, dp);
+        } else if (dp.items.length > existing.items.length || dp.theme || dp.notes) {
+          // Keep the richer copy, discard the previous one
+          duplicateIds.push(existing.id);
           seen.set(key, dp);
         } else {
           duplicateIds.push(dp.id);
